@@ -9,7 +9,7 @@ Usage:
     [--original-name][--original-metadata][--no-original][--only-original]
     [--name-format <format>][--strict-playlist][--playlist-name-format <format>]
     [--client-id <id>][--auth-token <token>][--overwrite][--no-playlist][--opus]
-    [--add-description][--archive-stats]
+    [--add-description][--archive-stats <file>]
 
     scdl -h | --help
     scdl --version
@@ -39,8 +39,8 @@ Options:
     --debug                         Set log level to DEBUG
     --warn                         Set log level to WARN
     --error                         Set log level to ERROR
-    --download-archive [file]       Keep track of track IDs in an archive file,
-                                    and skip already-downloaded files
+    --download-archive [file]       Keep track of tracks in an archive DB,
+                                    and skip already-downloaded tracks
     --extract-artist                Set artist tag from title instead of username
     --hide-progress                 Hide the wget progress bar
     --hidewarnings                  Hide Warnings. (use with precaution)
@@ -73,7 +73,7 @@ Options:
     --no-playlist                   Skip downloading playlists
     --add-description               Adds the description to a separate txt file
     --opus                          Prefer downloading opus streams over mp3 streams
-    --archive-stats                 Show archive database statistics
+    --archive-stats [file]          Show archive database statistics
 """
 
 import atexit
@@ -201,7 +201,7 @@ class SCDLArgs(TypedDict):
     sync: Optional[str]
     s: Optional[str]
     t: bool
-    archive_stats: bool
+    archive_stats: Optional[str]
 
 
 class PlaylistInfo(TypedDict):
@@ -564,10 +564,7 @@ def main() -> None:
 
     # Handle archive stats early
     if arguments["--archive-stats"]:
-        archive_filename = arguments.get("--download-archive")
-        if not archive_filename:
-            logger.error("--archive-stats requires --download-archive to be specified")
-            sys.exit(1)
+        archive_filename = arguments.get("--archive-stats")
 
         try:
             with ArchiveManager(archive_filename) as archive:
