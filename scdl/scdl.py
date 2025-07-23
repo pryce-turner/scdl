@@ -2,7 +2,7 @@
 
 Usage:
     scdl (-l <track_url> | -s <search_query> | me) [-a | -f | -C | -t | -p | -r]
-    [-c | --force-metadata][-n <maxtracks>][-o <offset>][--hidewarnings][--debug | --error]
+    [-c | --force-metadata][-n <maxtracks>][-o <offset>][--hidewarnings][--debug | --warn | --error]
     [--path <path>][--addtofile][--addtimestamp][--onlymp3][--hide-progress][--min-size <size>]
     [--max-size <size>][--remove][--no-album-tag][--no-playlist-folder]
     [--download-archive <file>][--sync <file>][--extract-artist][--flac][--original-art]
@@ -37,6 +37,7 @@ Options:
                                     (Deprecated. Use --name-format instead.)
     --addtofile                     Add artist to filename if missing
     --debug                         Set log level to DEBUG
+    --warn                         Set log level to WARN
     --error                         Set log level to ERROR
     --download-archive [file]       Keep track of track IDs in an archive file,
                                     and skip already-downloaded files
@@ -245,20 +246,20 @@ class ArchiveManager:
     Manages track archives using TinyDB for enhanced metadata storage and tracking.
     This is an append-only archive that never removes entries to maintain historical data.
     """
-    
+
     def __init__(self, archive_path: Union[str, pathlib.Path]):
         """
         Initialize the archive manager.
-        
+
         Args:
             archive_path: Path to the archive file
         """
         self.archive_path = pathlib.Path(archive_path)
-        
+
         # Ensure we use .json extension
         if self.archive_path.suffix.lower() not in ['.json', '.db']:
             self.archive_path = self.archive_path.with_suffix('.json')
-        
+
         # Initialize TinyDB with caching for better performance
         self.db = TinyDB(
             self.archive_path,
@@ -268,10 +269,10 @@ class ArchiveManager:
         )
         self.tracks_table = self.db.table('tracks')
         self.metadata_table = self.db.table('metadata')
-        
+
         # Initialize metadata
         self._init_metadata()
-    
+
     def _init_metadata(self) -> None:
         """Initialize archive metadata if it doesn't exist."""
         if not self.metadata_table.all():
@@ -281,31 +282,31 @@ class ArchiveManager:
                 'total_tracks_added': 0,
                 'total_tracks_seen': 0
             })
-    
+
     def add_track(self, track: Union[BasicTrack, Track]) -> bool:
         """
         Add a track to the archive.
-        
+
         Args:
             track: Track object to add
-            
+
         Returns:
             bool: True if track was newly added, False if already existed
         """
         TrackQuery = Query()
         existing = self.tracks_table.search(TrackQuery.track_id == track.id)
         current_time = datetime.now().isoformat()
-        
+
         # Extract comprehensive track data
         track_data = self._extract_track_data(track, current_time)
-        
+
         # Update metadata counters
         metadata = self.metadata_table.all()[0]
-        
+
         if existing:
             # Update existing track's last_seen time and all metadata
             self.tracks_table.update(track_data, TrackQuery.track_id == track.id)
-            
+
             # Update seen counter
             self.metadata_table.update({
                 'total_tracks_seen': metadata.get('total_tracks_seen', 0) + 1
@@ -315,13 +316,13 @@ class ArchiveManager:
             # Add new track
             track_data['added_at'] = current_time
             self.tracks_table.insert(track_data)
-            
+
             # Update metadata counters
             self.metadata_table.update({
                 'total_tracks_added': metadata.get('total_tracks_added', 0) + 1,
                 'total_tracks_seen': metadata.get('total_tracks_seen', 0) + 1
             })
-            
+
             return True
 
     def _extract_track_data(self, track: Union[BasicTrack, Track], current_time: str) -> dict:
@@ -329,7 +330,7 @@ class ArchiveManager:
         # Track fields to exclude
         track_exclude_fields = {
             "waveform_url",
-            "media", 
+            "media",
             "track_authorization",
             "monetization_model",
             "policy",
@@ -338,24 +339,24 @@ class ArchiveManager:
             "reposts_count",
             "embeddable_by"
         }
-        
+
         # User fields to exclude
         user_exclude_fields = {
             "verified",
-            "city", 
+            "city",
             "county_code",
             "badges"
         }
-        
+
         track_data = {
             'track_id': track.id,
             'last_seen': current_time
         }
-        
+
         # Extract all track attributes except excluded ones
         for attr in dir(track):
-            if (not attr.startswith('_') and 
-                attr not in track_exclude_fields and 
+            if (not attr.startswith('_') and
+                attr not in track_exclude_fields and
                 attr != 'user' and
                 hasattr(track, attr)):
                 try:
@@ -373,12 +374,12 @@ class ArchiveManager:
                 except (AttributeError, TypeError):
                     # Skip attributes that can't be accessed or serialized
                     continue
-        
+
         # Extract user data if available
         if hasattr(track, 'user') and track.user:
             user_data = {}
             for attr in dir(track.user):
-                if (not attr.startswith('_') and 
+                if (not attr.startswith('_') and
                     attr not in user_exclude_fields and
                     hasattr(track.user, attr)):
                     try:
@@ -396,61 +397,61 @@ class ArchiveManager:
                     except (AttributeError, TypeError):
                         # Skip attributes that can't be accessed or serialized
                         continue
-            
+
             track_data['user'] = user_data
-        
+
         return track_data
-    
+
     def is_track_downloaded(self, track_id: int) -> bool:
         """
         Check if a track is in the archive.
-        
+
         Args:
             track_id: ID of the track to check
-            
+
         Returns:
             bool: True if track is in archive
         """
         Track = Query()
         return bool(self.tracks_table.search(Track.track_id == track_id))
-    
+
     def get_track_info(self, track_id: int) -> Optional[dict]:
         """
         Get track information from archive.
-        
+
         Args:
             track_id: ID of the track
-            
+
         Returns:
             Dict with track info or None if not found
         """
         Track = Query()
         results = self.tracks_table.search(Track.track_id == track_id)
         return results[0] if results else None
-    
+
     def get_all_track_ids(self) -> Set[int]:
         """
         Get all track IDs in the archive.
-        
+
         Returns:
             Set of track IDs
         """
         return {track['track_id'] for track in self.tracks_table.all()}
-    
+
     def check_for_removed_tracks(self, current_track_ids: Set[int]) -> List[dict]:
         """
         Check for tracks that are in the archive but not in the current set.
         These might have been removed from the source.
-        
+
         Args:
             current_track_ids: Set of track IDs from current operation
-            
+
         Returns:
             List of track info dictionaries for potentially removed tracks
         """
         archived_ids = self.get_all_track_ids()
         removed_ids = archived_ids - current_track_ids
-        
+
         removed_tracks = []
         if removed_ids:
             Track = Query()
@@ -458,29 +459,29 @@ class ArchiveManager:
                 track_info = self.tracks_table.search(Track.track_id == track_id)
                 if track_info:
                     removed_tracks.append(track_info[0])
-        
+
         return removed_tracks
-    
+
     def get_statistics(self) -> dict:
         """Get archive statistics."""
         metadata = self.metadata_table.all()[0] if self.metadata_table.all() else {}
-        
+
         total_tracks = len(self.tracks_table.all())
-        
+
         return {
             'total_tracks': total_tracks,
             'created_at': metadata.get('created_at'),
             'total_added': metadata.get('total_tracks_added', 0),
             'total_seen': metadata.get('total_tracks_seen', 0)
         }
-    
+
     def close(self) -> None:
         """Close the database connection."""
         self.db.close()
-    
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
@@ -567,11 +568,11 @@ def main() -> None:
         if not archive_filename:
             logger.error("--archive-stats requires --download-archive to be specified")
             sys.exit(1)
-        
+
         try:
             with ArchiveManager(archive_filename) as archive:
                 stats = archive.get_statistics()
-                
+
                 logger.info("Archive Statistics:")
                 logger.info(f"  Total tracks: {stats['total_tracks']}")
                 logger.info(f"  Total added: {stats['total_added']}")
@@ -585,6 +586,8 @@ def main() -> None:
 
     if arguments["--debug"]:
         logger.level = logging.DEBUG
+    elif arguments["--warn"]:
+        logger.level = logging.WARN
     elif arguments["--error"]:
         logger.level = logging.ERROR
 
@@ -834,29 +837,29 @@ def check_removed_tracks(current_tracks: List[Union[BasicTrack, Track]], kwargs:
     archive_filename = kwargs.get("download_archive")
     if not archive_filename:
         return
-    
+
     try:
         current_track_ids = {track.id for track in current_tracks}
-        
+
         with ArchiveManager(archive_filename) as archive:
             removed_tracks = archive.check_for_removed_tracks(current_track_ids)
-            
+
             if removed_tracks:
                 logger.warning(f"Found {len(removed_tracks)} tracks in archive that are no longer available:")
-                
+
                 for track_info in removed_tracks:
                     track_id = track_info['track_id']
                     title = track_info.get('title', 'Unknown')
                     artist = track_info.get('user', {}).get('username', 'Unknown') if isinstance(track_info.get('user'), dict) else 'Unknown'
                     url = track_info.get('permalink_url', f'https://soundcloud.com/track/{track_id}')
                     last_seen = track_info.get('last_seen', 'Unknown')
-                    
+
                     logger.warning(
                         f"  - Track ID {track_id}: '{artist} - {title}' "
                         f"(last seen: {last_seen[:10] if last_seen != 'Unknown' else 'Unknown'}) "
                         f"[{url}]"
                     )
-    
+
     except Exception as e:
         logger.error(f"Error checking for removed tracks: {e}")
 
@@ -885,17 +888,17 @@ def download_url(client: SoundCloud, kwargs: SCDLArgs) -> None:
         if kwargs.get("f"):
             logger.info(f"Retrieving all likes of user {user.username}...")
             likes = list(client.get_user_likes(user.id, limit=1000))
-            
+
             # Collect tracks for removed track checking
             collected_tracks = []
             for like in likes:
                 if isinstance(like, TrackLike):
                     collected_tracks.append(like.track)
-            
+
             # Check for removed tracks
             if kwargs.get("download_archive"):
                 check_removed_tracks(collected_tracks, kwargs)
-            
+
             for i, like in itertools.islice(enumerate(likes, 1), offset, None):
                 logger.info(f"like n°{i} of {user.likes_count}")
                 if isinstance(like, TrackLike):
@@ -917,18 +920,18 @@ def download_url(client: SoundCloud, kwargs: SCDLArgs) -> None:
         elif kwargs.get("C"):
             logger.info(f"Retrieving all commented tracks of user {user.username}...")
             comments = list(client.get_user_comments(user.id, limit=1000))
-            
+
             # Collect tracks for removed track checking
             collected_tracks = []
             for comment in comments:
                 track = client.get_track(comment.track.id)
                 if track:
                     collected_tracks.append(track)
-            
+
             # Check for removed tracks
             if kwargs.get("download_archive"):
                 check_removed_tracks(collected_tracks, kwargs)
-            
+
             for i, comment in itertools.islice(enumerate(comments, 1), offset, None):
                 logger.info(f"comment n°{i} of {user.comments_count}")
                 track = client.get_track(comment.track.id)
@@ -943,11 +946,11 @@ def download_url(client: SoundCloud, kwargs: SCDLArgs) -> None:
         elif kwargs.get("t"):
             logger.info(f"Retrieving all tracks of user {user.username}...")
             tracks = list(client.get_user_tracks(user.id, limit=1000))
-            
+
             # Check for removed tracks
             if kwargs.get("download_archive"):
                 check_removed_tracks(tracks, kwargs)
-            
+
             for i, track in itertools.islice(enumerate(tracks, 1), offset, None):
                 logger.info(f"track n°{i} of {user.track_count}")
                 download_track(client, track, kwargs, exit_on_fail=kwargs["strict_playlist"])
@@ -955,17 +958,17 @@ def download_url(client: SoundCloud, kwargs: SCDLArgs) -> None:
         elif kwargs.get("a"):
             logger.info(f"Retrieving all tracks & reposts of user {user.username}...")
             items = list(client.get_user_stream(user.id, limit=1000))
-            
+
             # Collect tracks for removed track checking
             collected_tracks = []
             for stream_item in items:
                 if isinstance(stream_item, (TrackStreamItem, TrackStreamRepostItem)):
                     collected_tracks.append(stream_item.track)
-            
+
             # Check for removed tracks
             if kwargs.get("download_archive"):
                 check_removed_tracks(collected_tracks, kwargs)
-            
+
             for i, stream_item in itertools.islice(enumerate(items, 1), offset, None):
                 logger.info(
                     f"item n°{i} of "
@@ -995,17 +998,17 @@ def download_url(client: SoundCloud, kwargs: SCDLArgs) -> None:
         elif kwargs.get("r"):
             logger.info(f"Retrieving all reposts of user {user.username}...")
             reposts = list(client.get_user_reposts(user.id, limit=1000))
-            
+
             # Collect tracks for removed track checking
             collected_tracks = []
             for repost in reposts:
                 if isinstance(repost, TrackStreamRepostItem):
                     collected_tracks.append(repost.track)
-            
+
             # Check for removed tracks
             if kwargs.get("download_archive"):
                 check_removed_tracks(collected_tracks, kwargs)
-            
+
             for i, repost in itertools.islice(enumerate(reposts, 1), offset, None):
                 logger.info(f"item n°{i} of {user.reposts_count or '?'}")
                 if isinstance(repost, TrackStreamRepostItem):
@@ -1049,7 +1052,7 @@ def sync(
     logger.info("Comparing tracks...")
     archive = kwargs.get("sync")
     assert archive is not None
-    
+
     with ArchiveManager(archive) as archive_mgr:
         archived_ids = archive_mgr.get_all_track_ids()
         new = [track.id for track in playlist.tracks]
@@ -1068,7 +1071,7 @@ def sync(
                 track_info = archive_mgr.get_track_info(track_id)
                 if track_info:
                     removed_tracks.append(track_info)
-            
+
             if removed_tracks:
                 logger.warning("The following tracks are no longer in the playlist:")
                 for track_info in removed_tracks:
