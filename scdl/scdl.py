@@ -292,24 +292,19 @@ class ArchiveManager:
         Returns:
             bool: True if track was newly added, False if already existed
         """
-        Track = Query()
-        existing = self.tracks_table.search(Track.track_id == track.id)
+        TrackQuery = Query()
+        existing = self.tracks_table.search(TrackQuery.track_id == track.id)
         current_time = datetime.now().isoformat()
         
-        track_data = {
-            'track_id': track.id,
-            'title': getattr(track, 'title', None),
-            'artist': getattr(track.user, 'username', None) if hasattr(track, 'user') else None,
-            'url': getattr(track, 'permalink_url', None),
-            'last_seen': current_time
-        }
+        # Extract comprehensive track data
+        track_data = self._extract_track_data(track, current_time)
         
         # Update metadata counters
         metadata = self.metadata_table.all()[0]
         
         if existing:
-            # Update existing track's last_seen time and metadata
-            self.tracks_table.update(track_data, Track.track_id == track.id)
+            # Update existing track's last_seen time and all metadata
+            self.tracks_table.update(track_data, TrackQuery.track_id == track.id)
             
             # Update seen counter
             self.metadata_table.update({
@@ -328,6 +323,83 @@ class ArchiveManager:
             })
             
             return True
+
+    def _extract_track_data(self, track: Union[BasicTrack, Track], current_time: str) -> dict:
+        """Extract comprehensive track data excluding specified fields."""
+        # Track fields to exclude
+        track_exclude_fields = {
+            "waveform_url",
+            "media", 
+            "track_authorization",
+            "monetization_model",
+            "policy",
+            "commentable",
+            "comment_count",
+            "reposts_count",
+            "embeddable_by"
+        }
+        
+        # User fields to exclude
+        user_exclude_fields = {
+            "verified",
+            "city", 
+            "county_code",
+            "badges"
+        }
+        
+        track_data = {
+            'track_id': track.id,
+            'last_seen': current_time
+        }
+        
+        # Extract all track attributes except excluded ones
+        for attr in dir(track):
+            if (not attr.startswith('_') and 
+                attr not in track_exclude_fields and 
+                attr != 'user' and
+                hasattr(track, attr)):
+                try:
+                    value = getattr(track, attr)
+                    # Convert datetime objects to ISO strings
+                    if hasattr(value, 'isoformat'):
+                        value = value.isoformat()
+                    # Skip callable attributes (methods)
+                    elif callable(value):
+                        continue
+                    # Handle complex objects by converting to string representation
+                    elif hasattr(value, '__dict__'):
+                        continue  # Skip complex objects for now
+                    track_data[attr] = value
+                except (AttributeError, TypeError):
+                    # Skip attributes that can't be accessed or serialized
+                    continue
+        
+        # Extract user data if available
+        if hasattr(track, 'user') and track.user:
+            user_data = {}
+            for attr in dir(track.user):
+                if (not attr.startswith('_') and 
+                    attr not in user_exclude_fields and
+                    hasattr(track.user, attr)):
+                    try:
+                        value = getattr(track.user, attr)
+                        # Convert datetime objects to ISO strings
+                        if hasattr(value, 'isoformat'):
+                            value = value.isoformat()
+                        # Skip callable attributes (methods)
+                        elif callable(value):
+                            continue
+                        # Handle complex objects by converting to string representation
+                        elif hasattr(value, '__dict__'):
+                            continue  # Skip complex objects for now
+                        user_data[attr] = value
+                    except (AttributeError, TypeError):
+                        # Skip attributes that can't be accessed or serialized
+                        continue
+            
+            track_data['user'] = user_data
+        
+        return track_data
     
     def is_track_downloaded(self, track_id: int) -> bool:
         """
@@ -775,8 +847,8 @@ def check_removed_tracks(current_tracks: List[Union[BasicTrack, Track]], kwargs:
                 for track_info in removed_tracks:
                     track_id = track_info['track_id']
                     title = track_info.get('title', 'Unknown')
-                    artist = track_info.get('artist', 'Unknown')
-                    url = track_info.get('url', f'https://soundcloud.com/track/{track_id}')
+                    artist = track_info.get('user', {}).get('username', 'Unknown') if isinstance(track_info.get('user'), dict) else 'Unknown'
+                    url = track_info.get('permalink_url', f'https://soundcloud.com/track/{track_id}')
                     last_seen = track_info.get('last_seen', 'Unknown')
                     
                     logger.warning(
@@ -1002,7 +1074,7 @@ def sync(
                 for track_info in removed_tracks:
                     track_id = track_info['track_id']
                     title = track_info.get('title', 'Unknown')
-                    artist = track_info.get('artist', 'Unknown')
+                    artist = track_info.get('user', {}).get('username', 'Unknown') if isinstance(track_info.get('user'), dict) else 'Unknown'
                     logger.warning(f"  - Track ID {track_id}: '{artist} - {title}'")
         else:
             logger.info("No tracks removed from playlist.")
