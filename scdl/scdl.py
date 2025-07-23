@@ -1485,7 +1485,7 @@ def download_track(
 
         # Skip if file ID or filename already exists
         if is_already_downloaded and not kwargs.get("force_metadata"):
-            raise SoundCloudException(f"{filename} already downloaded.")
+            logger.info(f"{filename} already downloaded.")
 
         # If file does not exist an error occurred
         # If we are downloading to stdout and reached this point, then most likely
