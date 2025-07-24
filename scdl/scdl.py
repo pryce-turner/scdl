@@ -37,7 +37,7 @@ Options:
                                     (Deprecated. Use --name-format instead.)
     --addtofile                     Add artist to filename if missing
     --debug                         Set log level to DEBUG
-    --warn                         Set log level to WARN
+    --warn                          Set log level to WARN
     --error                         Set log level to ERROR
     --archive-stats [file]          Generate statistics of archive DB
     --download-archive [file]       Keep track of tracks in an archive DB,
@@ -1134,7 +1134,6 @@ def download_playlist(
             kwargs.get("playlist_offset", 0),
             None,
         ):
-            logger.debug(track)
             logger.info(f"Track n°{counter}")
             playlist_info["tracknumber_int"] = counter
             playlist_info["tracknumber"] = str(counter).zfill(tracknumber_digits)
@@ -1417,6 +1416,7 @@ def download_track(
         title = track.title
         title = title.encode("utf-8", "ignore").decode("utf-8")
         logger.info(f"Downloading {title}")
+        logger.info(track)
 
         # Not streamable
         if not track.streamable:
@@ -1451,7 +1451,7 @@ def download_track(
                         playlist_info,
                     )
             except filelock.Timeout:
-                logger.debug(f"Could not acquire lock: {lock}. Skipping")
+                logger.warning(f"Could not acquire lock: {lock}. Skipping")
                 return
 
         if filename is None:
@@ -1470,7 +1470,7 @@ def download_track(
                         playlist_info,
                     )
             except filelock.Timeout:
-                logger.debug(f"Could not acquire lock: {lock}. Skipping")
+                logger.warning(f"Could not acquire lock: {lock}. Skipping")
                 return
 
         if kwargs.get("remove"):
