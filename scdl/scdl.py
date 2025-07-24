@@ -39,6 +39,7 @@ Options:
     --debug                         Set log level to DEBUG
     --warn                         Set log level to WARN
     --error                         Set log level to ERROR
+    --archive-stats [file]          Generate statistics of archive DB
     --download-archive [file]       Keep track of tracks in an archive DB,
                                     and skip already-downloaded tracks
     --extract-artist                Set artist tag from title instead of username
@@ -73,7 +74,6 @@ Options:
     --no-playlist                   Skip downloading playlists
     --add-description               Adds the description to a separate txt file
     --opus                          Prefer downloading opus streams over mp3 streams
-    --archive-stats [file]          Show archive database statistics
 """
 
 import atexit
@@ -564,10 +564,9 @@ def main() -> None:
 
     # Handle archive stats early
     if arguments["--archive-stats"]:
-        archive_filename = arguments.get("--archive-stats")
 
         try:
-            with ArchiveManager(archive_filename) as archive:
+            with ArchiveManager(arguments["--archive-stats"]) as archive:
                 stats = archive.get_statistics()
 
                 logger.info("Archive Statistics:")
