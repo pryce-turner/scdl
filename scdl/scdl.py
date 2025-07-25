@@ -283,47 +283,53 @@ class ArchiveManager:
                 'total_tracks_seen': 0
             })
 
-    def add_track(self, track: Union[BasicTrack, Track]) -> bool:
-        """
-        Add a track to the archive.
+    def add_track(self, track: Union[BasicTrack, Track], playlist: Optional[str] = None, removed: bool = False) -> bool:
+       """
+       Add a track to the archive.
 
-        Args:
-            track: Track object to add
+       Args:
+           track: Track object to add
+           playlist: Optional playlist name/identifier
+           removed: Whether this track has been removed from the source
 
-        Returns:
-            bool: True if track was newly added, False if already existed
-        """
-        TrackQuery = Query()
-        existing = self.tracks_table.search(TrackQuery.track_id == track.id)
-        current_time = datetime.now().isoformat()
+       Returns:
+           bool: True if track was newly added, False if already existed
+       """
+       TrackQuery = Query()
+       existing = self.tracks_table.search(TrackQuery.track_id == track.id)
+       current_time = datetime.now().isoformat()
 
-        # Extract comprehensive track data
-        track_data = self._extract_track_data(track, current_time)
+       # Extract comprehensive track data
+       track_data = self._extract_track_data(track, current_time)
 
-        # Update metadata counters
-        metadata = self.metadata_table.all()[0]
+       # Add the new fields
+       track_data['playlist'] = playlist
+       track_data['removed'] = removed
 
-        if existing:
-            # Update existing track's last_seen time and all metadata
-            self.tracks_table.update(track_data, TrackQuery.track_id == track.id)
+       # Update metadata counters
+       metadata = self.metadata_table.all()[0]
 
-            # Update seen counter
-            self.metadata_table.update({
-                'total_tracks_seen': metadata.get('total_tracks_seen', 0) + 1
-            })
-            return False
-        else:
-            # Add new track
-            track_data['added_at'] = current_time
-            self.tracks_table.insert(track_data)
+       if existing:
+           # Update existing track's last_seen time and all metadata
+           self.tracks_table.update(track_data, TrackQuery.track_id == track.id)
 
-            # Update metadata counters
-            self.metadata_table.update({
-                'total_tracks_added': metadata.get('total_tracks_added', 0) + 1,
-                'total_tracks_seen': metadata.get('total_tracks_seen', 0) + 1
-            })
+           # Update seen counter
+           self.metadata_table.update({
+               'total_tracks_seen': metadata.get('total_tracks_seen', 0) + 1
+           })
+           return False
+       else:
+           # Add new track
+           track_data['added_at'] = current_time
+           self.tracks_table.insert(track_data)
 
-            return True
+           # Update metadata counters
+           self.metadata_table.update({
+               'total_tracks_added': metadata.get('total_tracks_added', 0) + 1,
+               'total_tracks_seen': metadata.get('total_tracks_seen', 0) + 1
+           })
+
+           return True
 
     def _extract_track_data(self, track: Union[BasicTrack, Track], current_time: str) -> dict:
         """Extract comprehensive track data excluding specified fields."""
@@ -438,28 +444,44 @@ class ArchiveManager:
         """
         return {track['track_id'] for track in self.tracks_table.all()}
 
-    def check_for_removed_tracks(self, current_track_ids: Set[int]) -> List[dict]:
+    def check_for_removed_tracks(self, current_track_ids: Set[int], playlist: Optional[str] = None) -> List[dict]:
         """
         Check for tracks that are in the archive but not in the current set.
         These might have been removed from the source.
-
+    
         Args:
             current_track_ids: Set of track IDs from current operation
-
+            playlist: Optional playlist name to filter by
+    
         Returns:
             List of track info dictionaries for potentially removed tracks
         """
-        archived_ids = self.get_all_track_ids()
+        Track = Query()
+        
+        # Build query - filter by playlist if provided, and only tracks that haven't been marked
+        # as "removed" in a previous run
+        query = Track.removed == False
+        if playlist is not None:
+            query = query & (Track.playlist == playlist)
+        
+        # Get archived tracks matching the criteria
+        archived_tracks = self.tracks_table.search(query)
+        archived_ids = {track['track_id'] for track in archived_tracks}
+        
         removed_ids = archived_ids - current_track_ids
-
+    
         removed_tracks = []
         if removed_ids:
-            Track = Query()
+            # Mark newly removed tracks as removed=True
+            for track_id in removed_ids:
+                self.tracks_table.update({'removed': True}, Track.track_id == track_id)
+                
+            # Get the track info for reporting
             for track_id in removed_ids:
                 track_info = self.tracks_table.search(Track.track_id == track_id)
                 if track_info:
                     removed_tracks.append(track_info[0])
-
+    
         return removed_tracks
 
     def get_statistics(self) -> dict:
@@ -825,7 +847,7 @@ def sanitize_str(
     return sanitized + ext
 
 
-def check_removed_tracks(current_tracks: List[Union[BasicTrack, Track]], kwargs: SCDLArgs) -> None:
+def check_removed_tracks(current_tracks: List[Union[BasicTrack, Track]], kwargs: SCDLArgs, playlist: Optional[str] = None) -> None:
     """
     Check for tracks that might have been removed and emit warnings.
     Call this function after collecting all tracks for a playlist/user.
@@ -838,7 +860,7 @@ def check_removed_tracks(current_tracks: List[Union[BasicTrack, Track]], kwargs:
         current_track_ids = {track.id for track in current_tracks}
 
         with ArchiveManager(archive_filename) as archive:
-            removed_tracks = archive.check_for_removed_tracks(current_track_ids)
+            removed_tracks = archive.check_for_removed_tracks(current_track_ids, playlist)
 
             if removed_tracks:
                 logger.warning(f"Found {len(removed_tracks)} tracks in archive that are no longer available:")
@@ -1475,8 +1497,10 @@ def download_track(
 
         if kwargs.get("remove"):
             files_to_keep.append(filename)
+            
+        playlist = playlist_info["title"] if playlist_info else None
 
-        record_download_archive(track, kwargs)
+        record_download_archive(track, kwargs, playlist)
         if kwargs["add_description"]:
             create_description_file(track.description, filename)
 
@@ -1581,7 +1605,7 @@ def in_download_archive(track: Union[BasicTrack, Track], kwargs: SCDLArgs) -> bo
         return False
 
 
-def record_download_archive(track: Union[BasicTrack, Track], kwargs: SCDLArgs) -> None:
+def record_download_archive(track: Union[BasicTrack, Track], kwargs: SCDLArgs, playlist: Optional[str] = None) -> None:
     """Write the track_id in the download archive"""
     archive_filename = kwargs.get("download_archive")
     if not archive_filename:
@@ -1589,7 +1613,7 @@ def record_download_archive(track: Union[BasicTrack, Track], kwargs: SCDLArgs) -
 
     try:
         with ArchiveManager(archive_filename) as archive:
-            archive.add_track(track)
+            archive.add_track(track, playlist=playlist)
     except Exception as e:
         logger.error(f"Error trying to write to download archive: {e}")
 
