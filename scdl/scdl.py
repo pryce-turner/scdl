@@ -1148,7 +1148,7 @@ def download_playlist(
 
         # Check for removed tracks
         if kwargs.get("download_archive"):
-            check_removed_tracks(list(playlist.tracks), kwargs)
+            check_removed_tracks(list(playlist.tracks), kwargs, playlist.title)
 
         tracknumber_digits = len(str(len(playlist.tracks)))
         for counter, track in itertools.islice(
