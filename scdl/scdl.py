@@ -1442,6 +1442,7 @@ def download_track(
     try:
         title = track.title
         title = title.encode("utf-8", "ignore").decode("utf-8")
+        playlist = playlist_info["title"] if playlist_info else None
         logger.info(f"Downloading {title}")
         logger.info(track)
 
@@ -1451,6 +1452,8 @@ def download_track(
 
         # Geoblocked track
         if track.policy == "BLOCK":
+            record_download_archive(track, kwargs, playlist, removed=True)
+            logger.warning(f"Track {track.title} with ID {track.id} region blocked, likely removed and marking as such")
             raise RegionBlockError
 
         # Get user_id from the client
@@ -1503,7 +1506,6 @@ def download_track(
         if kwargs.get("remove"):
             files_to_keep.append(filename)
 
-        playlist = playlist_info["title"] if playlist_info else None
 
         record_download_archive(track, kwargs, playlist)
         if kwargs["add_description"]:
@@ -1610,7 +1612,7 @@ def in_download_archive(track: Union[BasicTrack, Track], kwargs: SCDLArgs) -> bo
         return False
 
 
-def record_download_archive(track: Union[BasicTrack, Track], kwargs: SCDLArgs, playlist: Optional[str] = None) -> None:
+def record_download_archive(track: Union[BasicTrack, Track], kwargs: SCDLArgs, playlist: Optional[str] = None, removed: bool = False) -> None:
     """Write the track_id in the download archive"""
     archive_filename = kwargs.get("download_archive")
     if not archive_filename:
@@ -1618,7 +1620,7 @@ def record_download_archive(track: Union[BasicTrack, Track], kwargs: SCDLArgs, p
 
     try:
         with ArchiveManager(archive_filename) as archive:
-            archive.add_track(track, playlist=playlist)
+            archive.add_track(track, playlist=playlist, removed=removed)
     except Exception as e:
         logger.error(f"Error trying to write to download archive: {e}")
 
