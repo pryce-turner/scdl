@@ -448,55 +448,50 @@ class ArchiveManager:
         """
         Check for tracks that are in the archive but not in the current set.
         These might have been removed from the source.
-    
+
         Args:
             current_track_ids: Set of track IDs from current operation
             playlist: Optional playlist name to filter by
-    
+
         Returns:
             List of track info dictionaries for potentially removed tracks
         """
         Track = Query()
-        
+
         # Build query - filter by playlist if provided, and only tracks that haven't been marked
         # as "removed" in a previous run
         query = Track.removed == False
         if playlist is not None:
             query = query & (Track.playlist == playlist)
-        
+
         # Get archived tracks matching the criteria
         archived_tracks = self.tracks_table.search(query)
         archived_ids = {track['track_id'] for track in archived_tracks}
-        
+
         removed_ids = archived_ids - current_track_ids
-    
-        removed_tracks = []
+        logger.warning(f"Found {len(removed_ids)} tracks in archive that are no longer available:")
+
         if removed_ids:
             # Mark newly removed tracks as removed=True
             for track_id in removed_ids:
                 self.tracks_table.update({'removed': True}, Track.track_id == track_id)
-                
-            # Get the track info for reporting
-            for track_id in removed_ids:
                 track = self.tracks_table.search(Track.track_id == track_id)
                 if track:
                     track_info = track[0]
-                    
-                    logger.warning(f"Found {len(removed_tracks)} tracks in archive that are no longer available:")
-    
-                    for track_info in removed_tracks:
-                        track_id = track_info['track_id']
-                        title = track_info.get('title', 'Unknown')
-                        artist = track_info.get('user', {}).get('username', 'Unknown') if isinstance(track_info.get('user'), dict) else 'Unknown'
-                        url = track_info.get('permalink_url', f'https://soundcloud.com/track/{track_id}')
-                        last_seen = track_info.get('last_seen', 'Unknown')
-    
-                        logger.warning(
-                            f"  - Track ID {track_id}: '{artist} - {title}' "
-                            f"(last seen: {last_seen[:10] if last_seen != 'Unknown' else 'Unknown'}) "
-                            f"[{url}]"
-                        )
-    
+                    track_id = track_info['track_id']
+                    title = track_info.get('title', 'Unknown')
+                    artist = track_info.get('user', {}).get('username', 'Unknown') if isinstance(track_info.get('user'), dict) else 'Unknown'
+                    url = track_info.get('permalink_url', f'https://soundcloud.com/track/{track_id}')
+                    last_seen = track_info.get('last_seen', 'Unknown')
+
+                    logger.warning(
+                        f"  - Track ID {track_id}: '{artist} - {title}' "
+                        f"(last seen: {last_seen[:10] if last_seen != 'Unknown' else 'Unknown'}) "
+                        f"[{url}]"
+                    )
+                else:
+                    logger.warning(f"Track ID {track_id} removed but no track associated in archive")
+
 
     def get_statistics(self) -> dict:
         """Get archive statistics."""
@@ -899,10 +894,13 @@ def download_url(client: SoundCloud, kwargs: SCDLArgs) -> None:
                 with ArchiveManager(archive) as arc:
                     arc.report_removed_tracks(ids)
                     seen = arc.get_all_track_ids()
-                    
+
             for i, like in itertools.islice(enumerate(likes, 1), offset, None):
-                logger.info(f"like n°{i} of {user.likes_count}")
-                if isinstance(like, TrackLike) and like.track.id not in seen:
+                logger.debug(f"Like n°{i} of {user.likes_count}")
+                if isinstance(like, TrackLike) and like.track.id in seen:
+                    logger.debug(f"Track {like.track} already in archive, skipping..")
+                    continue
+                elif isinstance(like, TrackLike):
                     download_track(
                         client,
                         like.track,
@@ -1125,6 +1123,8 @@ def download_playlist(
         "tracknumber_total": playlist.track_count,
     }
 
+    logger.info(f"Processing playlist {playlist.title} with id {playlist.id} containing {playlist.track_count} tracks..")
+
     if not kwargs.get("no_playlist_folder"):
         if not os.path.exists(playlist_name):
             os.makedirs(playlist_name)
@@ -1144,16 +1144,16 @@ def download_playlist(
             else:
                 logger.error(f"Invalid sync archive file {kwargs.get('sync')}")
                 sys.exit(1)
-        
+
         ids = set(t.id for t in list(playlist.tracks))
         seen = set()
         archive = kwargs.get("download_archive")
         # Check for removed tracks
         if archive:
             with ArchiveManager(archive) as arc:
-                arc.report_removed_tracks(ids)
+                arc.report_removed_tracks(ids, playlist=playlist.title)
                 seen = arc.get_all_track_ids()
-            
+
 
         tracknumber_digits = len(str(len(playlist.tracks)))
         for counter, track in itertools.islice(
@@ -1161,7 +1161,7 @@ def download_playlist(
             kwargs.get("playlist_offset", 0),
             None,
         ):
-            logger.info(f"Track n°{counter}")
+            logger.debug(f"Track n°{counter}")
             playlist_info["tracknumber_int"] = counter
             playlist_info["tracknumber"] = str(counter).zfill(tracknumber_digits)
             if isinstance(track, MiniTrack):
@@ -1502,7 +1502,7 @@ def download_track(
 
         if kwargs.get("remove"):
             files_to_keep.append(filename)
-            
+
         playlist = playlist_info["title"] if playlist_info else None
 
         record_download_archive(track, kwargs, playlist)
