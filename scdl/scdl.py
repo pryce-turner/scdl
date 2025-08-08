@@ -469,9 +469,9 @@ class ArchiveManager:
         archived_ids = {track['track_id'] for track in archived_tracks}
 
         removed_ids = archived_ids - current_track_ids
-        logger.warning(f"Found {len(removed_ids)} tracks in archive that are no longer available:")
 
         if removed_ids:
+            logger.warning(f"Found {len(removed_ids)} tracks in archive that are no longer available")
             # Mark newly removed tracks as removed=True
             for track_id in removed_ids:
                 self.tracks_table.update({'removed': True}, Track.track_id == track_id)
@@ -1123,7 +1123,7 @@ def download_playlist(
         "tracknumber_total": playlist.track_count,
     }
 
-    logger.info(f"Processing playlist {playlist.title} with id {playlist.id} containing {playlist.track_count} tracks..")
+    logger.info(f"Processing playlist {playlist.title} with id {playlist.id} containing {playlist.track_count} tracks")
 
     if not kwargs.get("no_playlist_folder"):
         if not os.path.exists(playlist_name):
@@ -1146,14 +1146,18 @@ def download_playlist(
                 sys.exit(1)
 
         ids = set(t.id for t in list(playlist.tracks))
-        seen = set()
         archive = kwargs.get("download_archive")
+        
         # Check for removed tracks
         if archive:
+            new = []
             with ArchiveManager(archive) as arc:
                 arc.report_removed_tracks(ids, playlist=playlist.title)
                 seen = arc.get_all_track_ids()
-
+                for t in playlist.tracks:
+                    if t.id not in seen:
+                        new.append(t)
+            playlist.tracks = tuple(new)
 
         tracknumber_digits = len(str(len(playlist.tracks)))
         for counter, track in itertools.islice(
@@ -1169,7 +1173,7 @@ def download_playlist(
                     track = client.get_tracks([track.id], playlist.id, playlist.secret_token)[0]
                 else:
                     track = client.get_track(track.id)  # type: ignore[assignment]
-            if isinstance(track, BasicTrack) and track.id not in seen:
+            if isinstance(track, BasicTrack) and track.id:
                 download_track(
                     client,
                     track,
