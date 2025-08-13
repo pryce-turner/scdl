@@ -878,29 +878,25 @@ def download_url(client: SoundCloud, kwargs: SCDLArgs) -> None:
         user = item
         logger.info("Found a user profile")
         if kwargs.get("f"):
-            logger.info(f"Retrieving all likes of user {user.username}...")
             likes = list(client.get_user_likes(user.id, limit=1000))
+            logger.info(f"Retrieving {len(likes)} likes of user {user.username}...")
 
-            # Collect tracks for removed track checking
-            ids = set()
-            for like in likes:
-                if isinstance(like, TrackLike):
-                    ids.add(like.track.id)
-
-            # Check for removed tracks
-            seen = set()
+            # Check for removed and already downloaded tracks
             archive = kwargs.get("download_archive")
             if archive:
+                ids = set()
                 with ArchiveManager(archive) as arc:
-                    arc.report_removed_tracks(ids)
                     seen = arc.get_all_track_ids()
+                    for l in likes.copy():
+                        if isinstance(l, TrackLike):
+                            ids.add(l.track.id)
+                            if l.track.id in seen:
+                                likes.remove(l)
+                    arc.report_removed_tracks(ids)
 
             for i, like in itertools.islice(enumerate(likes, 1), offset, None):
                 logger.debug(f"Like n°{i} of {user.likes_count}")
-                if isinstance(like, TrackLike) and like.track.id in seen:
-                    logger.debug(f"Track {like.track} already in archive, skipping..")
-                    continue
-                elif isinstance(like, TrackLike):
+                if isinstance(like, TrackLike):
                     download_track(
                         client,
                         like.track,
@@ -920,21 +916,22 @@ def download_url(client: SoundCloud, kwargs: SCDLArgs) -> None:
             logger.info(f"Retrieving all commented tracks of user {user.username}...")
             comments = list(client.get_user_comments(user.id, limit=1000))
 
-            # Collect tracks for removed track checking
-            ids = set([c.track.id for c in comments])
-
-            # Check for removed tracks
-            seen = set()
+            # Check for removed and already downloaded tracks
             archive = kwargs.get("download_archive")
             if archive:
+                ids = set()
                 with ArchiveManager(archive) as arc:
-                    arc.report_removed_tracks(ids)
                     seen = arc.get_all_track_ids()
+                    for c in comments.copy():
+                        ids.add(c.track.id)
+                        if c.track.id in seen:
+                            comments.remove(c)
+                    arc.report_removed_tracks(ids)
 
             for i, comment in itertools.islice(enumerate(comments, 1), offset, None):
                 logger.info(f"comment n°{i} of {user.comments_count}")
                 track = client.get_track(comment.track.id)
-                if track and track.id not in seen:
+                if track:
                     download_track(
                         client,
                         track,
@@ -946,39 +943,39 @@ def download_url(client: SoundCloud, kwargs: SCDLArgs) -> None:
             logger.info(f"Retrieving all tracks of user {user.username}...")
             tracks = list(client.get_user_tracks(user.id, limit=1000))
 
-            # Collect tracks for removed track checking
-            ids = set([t.id for t in tracks])
-
-            # Check for removed tracks
-            seen = set()
+            # Check for removed and already downloaded tracks
             archive = kwargs.get("download_archive")
             if archive:
+                ids = set()
                 with ArchiveManager(archive) as arc:
-                    arc.report_removed_tracks(ids)
                     seen = arc.get_all_track_ids()
+                    for t in tracks.copy():
+                        ids.add(t.id)
+                        if t.id in seen:
+                            tracks.remove(t)
+                    arc.report_removed_tracks(ids)
 
             for i, track in itertools.islice(enumerate(tracks, 1), offset, None):
-                logger.info(f"track n°{i} of {user.track_count}")
-                if track.id not in seen:
+                logger.info(f"Track n°{i} of {user.track_count}")
+                if track.id:
                     download_track(client, track, kwargs, exit_on_fail=kwargs["strict_playlist"])
             logger.info(f"Downloaded all tracks of user {user.username}!")
         elif kwargs.get("a"):
             logger.info(f"Retrieving all tracks & reposts of user {user.username}...")
             items = list(client.get_user_stream(user.id, limit=1000))
-
-            # Collect tracks for removed track checking
-            ids = set()
-            for stream_item in items:
-                if isinstance(stream_item, (TrackStreamItem, TrackStreamRepostItem)):
-                    ids.add(stream_item.track.id)
-
-            # Check for removed tracks
-            seen = set()
+                    
+            # Check for removed and already downloaded tracks
             archive = kwargs.get("download_archive")
             if archive:
+                ids = set()
                 with ArchiveManager(archive) as arc:
-                    arc.report_removed_tracks(ids)
                     seen = arc.get_all_track_ids()
+                    for i in items.copy():
+                        if isinstance(i, (TrackStreamItem, TrackStreamRepostItem)):
+                            ids.add(i.track.id)
+                            if i.track.id in seen:
+                                items.remove(i)
+                    arc.report_removed_tracks(ids)
 
             for i, stream_item in itertools.islice(enumerate(items, 1), offset, None):
                 logger.info(
@@ -1003,30 +1000,29 @@ def download_url(client: SoundCloud, kwargs: SCDLArgs) -> None:
             logger.info(f"Retrieving all playlists of user {user.username}...")
             playlists = client.get_user_playlists(user.id, limit=1000)
             for i, playlist in itertools.islice(enumerate(playlists, 1), offset, None):
-                logger.info(f"playlist n°{i} of {user.playlist_count}")
+                logger.info(f"Playlist n°{i} of {user.playlist_count}")
                 download_playlist(client, playlist, kwargs)
             logger.info(f"Downloaded all playlists of user {user.username}!")
         elif kwargs.get("r"):
             logger.info(f"Retrieving all reposts of user {user.username}...")
             reposts = list(client.get_user_reposts(user.id, limit=1000))
 
-            # Collect tracks for removed track checking
-            ids = set()
-            for repost in reposts:
-                if isinstance(repost, TrackStreamRepostItem):
-                    ids.add(repost.track.id)
-
-            # Check for removed tracks
-            seen = set()
+            # Check for removed and already downloaded tracks
             archive = kwargs.get("download_archive")
             if archive:
+                ids = set()
                 with ArchiveManager(archive) as arc:
-                    arc.report_removed_tracks(ids)
                     seen = arc.get_all_track_ids()
+                    for r in reposts.copy():
+                        if isinstance(r, TrackStreamRepostItem):
+                            ids.add(r.track.id)
+                            if r.track.id in seen:
+                                reposts.remove(r)
+                    arc.report_removed_tracks(ids)
 
             for i, repost in itertools.islice(enumerate(reposts, 1), offset, None):
-                logger.info(f"item n°{i} of {user.reposts_count or '?'}")
-                if isinstance(repost, TrackStreamRepostItem) and repost.track.id not in seen:
+                logger.info(f"Item n°{i} of {user.reposts_count or '?'}")
+                if isinstance(repost, TrackStreamRepostItem):
                     download_track(
                         client,
                         repost.track,
@@ -1145,11 +1141,11 @@ def download_playlist(
                 logger.error(f"Invalid sync archive file {kwargs.get('sync')}")
                 sys.exit(1)
 
-        ids = set(t.id for t in list(playlist.tracks))
-        archive = kwargs.get("download_archive")
         
-        # Check for removed tracks
+        # Check for removed and already downloaded tracks
+        archive = kwargs.get("download_archive")
         if archive:
+            ids = set(t.id for t in list(playlist.tracks))
             new = []
             with ArchiveManager(archive) as arc:
                 arc.report_removed_tracks(ids, playlist=playlist.title)
