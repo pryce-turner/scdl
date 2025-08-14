@@ -491,6 +491,8 @@ class ArchiveManager:
                     )
                 else:
                     logger.warning(f"Track ID {track_id} removed but no track associated in archive")
+        else:
+            logger.info("No tracks in archive missing from library!")
 
 
     def get_statistics(self) -> dict:
@@ -963,7 +965,7 @@ def download_url(client: SoundCloud, kwargs: SCDLArgs) -> None:
         elif kwargs.get("a"):
             logger.info(f"Retrieving all tracks & reposts of user {user.username}...")
             items = list(client.get_user_stream(user.id, limit=1000))
-                    
+
             # Check for removed and already downloaded tracks
             archive = kwargs.get("download_archive")
             if archive:
@@ -1141,7 +1143,7 @@ def download_playlist(
                 logger.error(f"Invalid sync archive file {kwargs.get('sync')}")
                 sys.exit(1)
 
-        
+
         # Check for removed and already downloaded tracks
         archive = kwargs.get("download_archive")
         if archive:
