@@ -9,7 +9,7 @@ Usage:
     [--original-name][--original-metadata][--no-original][--only-original]
     [--name-format <format>][--strict-playlist][--playlist-name-format <format>]
     [--client-id <id>][--auth-token <token>][--overwrite][--no-playlist][--opus]
-    [--add-description][--archive-stats <file>]
+    [--add-description][--archive-stats <file>][--debug-logfile <file>]
 
     scdl -h | --help
     scdl --version
@@ -39,6 +39,7 @@ Options:
     --debug                         Set log level to DEBUG
     --warn                          Set log level to WARN
     --error                         Set log level to ERROR
+    --debug-logfile [file]          Log all DEBUG to file regardless of log level
     --archive-stats [file]          Generate statistics of archive DB
     --download-archive [file]       Keep track of tracks in an archive DB,
                                     and skip already-downloaded tracks
@@ -146,7 +147,7 @@ from scdl.metadata_assembler import MetadataInfo, assemble_metadata
 mimetypes.init()
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 logger.addFilter(utils.ColorizeFilter())
 
 FFMPEG_PIPE_CHUNK_SIZE = 1024 * 1024  # 1 mb
@@ -164,8 +165,10 @@ class SCDLArgs(TypedDict):
     c: bool
     client_id: Optional[str]
     debug: bool
-    download_archive: Optional[str]
+    warn: bool
     error: bool
+    debug_logfile: Optional[str]
+    download_archive: Optional[str]
     extract_artist: bool
     f: bool
     flac: bool
@@ -492,7 +495,7 @@ class ArchiveManager:
                 else:
                     logger.warning(f"Track ID {track_id} removed but no track associated in archive")
         else:
-            logger.info("No tracks in archive missing from library!")
+            logger.debug("No tracks in archive missing from library!")
 
 
     def get_statistics(self) -> dict:
@@ -590,7 +593,8 @@ def get_filelock(path: Union[pathlib.Path, str], timeout: int = 10) -> SafeLock:
 
 def main() -> None:
     """Main function, parses the URL from command line arguments"""
-    logger.addHandler(logging.StreamHandler())
+    stream_handler = logging.StreamHandler(sys.stdout)
+    logger.addHandler(stream_handler)
 
     # Parse arguments
     arguments = docopt(__doc__, version=__version__)
@@ -613,12 +617,25 @@ def main() -> None:
             sys.exit(1)
         sys.exit(0)
 
+    # Control the terminal handler level
     if arguments["--debug"]:
-        logger.level = logging.DEBUG
+        stream_handler.setLevel(logging.DEBUG)
     elif arguments["--warn"]:
-        logger.level = logging.WARN
+        stream_handler.setLevel(logging.WARN)
     elif arguments["--error"]:
-        logger.level = logging.ERROR
+        stream_handler.setLevel(logging.ERROR)
+    else:
+        stream_handler.setLevel(logging.INFO)
+    
+    if arguments["--debug-logfile"]:
+        try:
+            path = pathlib.Path(arguments["--debug-logfile"]).resolve()
+            file_handler = logging.FileHandler(path, mode="a", encoding="utf-8")
+            file_handler.setLevel(logging.DEBUG)
+            logger.addHandler(file_handler)
+        except Exception:
+            logger.error(f"Invalid download archive file {arguments['--debug-logfile']}")
+            sys.exit(1)
 
     if "XDG_CONFIG_HOME" in os.environ:
         config_file = pathlib.Path(os.environ["XDG_CONFIG_HOME"], "scdl", "scdl.cfg")
@@ -1002,7 +1019,7 @@ def download_url(client: SoundCloud, kwargs: SCDLArgs) -> None:
             logger.info(f"Retrieving all playlists of user {user.username}...")
             playlists = client.get_user_playlists(user.id, limit=1000)
             for i, playlist in itertools.islice(enumerate(playlists, 1), offset, None):
-                logger.info(f"Playlist n°{i} of {user.playlist_count}")
+                logger.debug(f"Playlist n°{i} of {user.playlist_count}")
                 download_playlist(client, playlist, kwargs)
             logger.info(f"Downloaded all playlists of user {user.username}!")
         elif kwargs.get("r"):
@@ -1093,7 +1110,7 @@ def sync(
                     artist = track_info.get('user', {}).get('username', 'Unknown') if isinstance(track_info.get('user'), dict) else 'Unknown'
                     logger.warning(f"  - Track ID {track_id}: '{artist} - {title}'")
         else:
-            logger.info("No tracks removed from playlist.")
+            logger.debug("No tracks removed from playlist.")
 
         if add:
             return tuple(track for track in playlist.tracks if track.id in add)
@@ -1446,7 +1463,7 @@ def download_track(
         title = title.encode("utf-8", "ignore").decode("utf-8")
         playlist = playlist_info["title"] if playlist_info else None
         logger.info(f"Downloading {title}")
-        logger.info(track)
+        logger.debug(track)
 
         # Not streamable
         if not track.streamable:
