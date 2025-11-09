@@ -25,6 +25,7 @@ setup(
         "requests",
         "tqdm",
         "pathvalidate",
+        "tinydb",
         "soundcloud-v2>=1.5.2",
         "filelock>=3.0.0",
         "typing_extensions; python_version < '3.11'",
