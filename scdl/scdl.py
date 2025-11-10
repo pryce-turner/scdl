@@ -626,7 +626,7 @@ def main() -> None:
         stream_handler.setLevel(logging.ERROR)
     else:
         stream_handler.setLevel(logging.INFO)
-    
+
     if arguments["--debug-logfile"]:
         try:
             path = pathlib.Path(arguments["--debug-logfile"]).resolve()
@@ -738,7 +738,7 @@ def main() -> None:
             path = pathlib.Path(arguments["--download-archive"]).resolve()
             arguments["--download-archive"] = path
         except Exception:
-            logger.error(f"Invalid download archive file {arguments['--download-archive']}")
+            logger.error(f"An error occurred with the debug file {arguments['--download-archive']}")
             sys.exit(1)
 
     if arguments["--sync"]:
