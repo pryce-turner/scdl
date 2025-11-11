@@ -1754,7 +1754,7 @@ def _add_metadata_to_stream(
     kwargs: SCDLArgs,
     playlist_info: Optional[PlaylistInfo] = None,
 ) -> None:
-    logger.info("Applying metadata...")
+    logger.debug("Applying metadata...")
 
     artwork_base_url = track.artwork_url or track.user.avatar_url
     artwork_response = None
@@ -1869,7 +1869,7 @@ def _get_ffmpeg_pipe(
     output_file: str,
     kwargs: SCDLArgs,
 ) -> subprocess.Popen:
-    logger.info("Creating the ffmpeg pipe...")
+    logger.debug("Creating the ffmpeg pipe...")
 
     commands = build_ffmpeg_encoding_args(
         in_data if isinstance(in_data, str) else "-",
@@ -1910,7 +1910,7 @@ def _re_encode_ffmpeg(
 ) -> io.BytesIO:
     pipe = _get_ffmpeg_pipe(in_data, out_codec, should_copy, out_file_name, kwargs)
 
-    logger.info("Encoding..")
+    logger.debug("Encoding..")
     errors_output = ""
     stdout = io.BytesIO()
 
